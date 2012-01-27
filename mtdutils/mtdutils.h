@@ -36,6 +36,13 @@ int mtd_mount_partition(const MtdPartition *partition, const char *mount_point,
 int mtd_partition_info(const MtdPartition *partition,
         size_t *total_size, size_t *erase_size, size_t *write_size);
 
+/* same as mtd_partition_info but adds total size excluding bad blocks
+ */
+int mtd_partition_info_ex(const MtdPartition *partition,
+        size_t *total_size, size_t *erase_size, size_t *write_size, size_t *usable_size);
+
+int mtd_partition_index(const MtdPartition *partition);
+
 /* read or write raw data from a partition, starting at the beginning.
  * skips bad blocks as best we can.
  */

@@ -32,6 +32,7 @@ struct MtdPartition {
     int device_index;
     unsigned int size;
     unsigned int erase_size;
+    unsigned int write_size;
     char *name;
 };
 
@@ -62,6 +63,68 @@ static MtdState g_mtd_state = {
 };
 
 #define MTD_PROC_FILENAME   "/proc/mtd"
+
+ssize_t mtdread(int fd, void *buf, size_t nbyte, size_t block_size)
+{
+    // first, try to read entire block (here, an eraseblock)
+    ssize_t result = read(fd, buf, nbyte);
+    ssize_t total;
+    
+    if (result == nbyte)
+        return result;
+    
+    if (nbyte % block_size != 0)
+        return -1;
+        
+    result = 0;
+    
+    // failing that, attempt to read one writeblock at a time
+    for (total = 0; total < nbyte; total += block_size)
+    {
+        ssize_t temp = read(fd, buf + total, block_size);
+        
+        if (temp < 0)
+            return temp;
+        
+        result += temp;
+        
+        if (temp != block_size)
+            return result;
+    }
+    
+    return result;
+}
+
+ssize_t mtdwrite(int fd, const void *buf, size_t nbyte, size_t block_size)
+{
+    // first, try to write entire block (here, an eraseblock)
+    ssize_t result = write(fd, buf, nbyte);
+    ssize_t total;
+    
+    if (result == nbyte)
+        return result;
+    
+    if (nbyte % block_size != 0)
+        return -1;
+        
+    result = 0;
+    
+    // failing that, attempt to write one writeblock at a time
+    for (total = 0; total < nbyte; total += block_size)
+    {
+        ssize_t temp = write(fd, buf + total, block_size);
+        
+        if (temp < 0)
+            return temp;
+        
+        result += temp;
+        
+        if (temp != block_size)
+            return result;
+    }
+    
+    return result;
+}
 
 int
 mtd_scan_partitions()
@@ -145,6 +208,9 @@ mtd_scan_partitions()
                 errno = ENOMEM;
                 goto bail;
             }
+            p->write_size = p->erase_size; // initialize to something reasonable
+            if (mtd_partition_info(p, NULL, NULL, &p->write_size) != 0)
+                goto bail;
             g_mtd_state.partition_count++;
         }
 
@@ -171,6 +237,9 @@ bail:
 const MtdPartition *
 mtd_find_partition_by_name(const char *name)
 {
+    if (g_mtd_state.partitions == NULL)
+        mtd_scan_partitions();
+    
     if (g_mtd_state.partitions != NULL) {
         int i;
         for (i = 0; i < g_mtd_state.partitions_allocd; i++) {
@@ -234,6 +303,12 @@ int
 mtd_partition_info(const MtdPartition *partition,
         size_t *total_size, size_t *erase_size, size_t *write_size)
 {
+    return mtd_partition_info_ex(partition, total_size, erase_size, write_size, NULL);
+}
+
+int mtd_partition_info_ex(const MtdPartition *partition,
+        size_t *total_size, size_t *erase_size, size_t *write_size, size_t *usable_size)
+{
     char mtddevname[32];
     sprintf(mtddevname, "/dev/mtd/mtd%d", partition->device_index);
     int fd = open(mtddevname, O_RDONLY);
@@ -241,6 +316,20 @@ mtd_partition_info(const MtdPartition *partition,
 
     struct mtd_info_user mtd_info;
     int ret = ioctl(fd, MEMGETINFO, &mtd_info);
+    
+    if (usable_size != NULL) {
+        off_t pos;
+        
+        *usable_size = mtd_info.size;
+        
+        for (pos = 0; pos < mtd_info.size; pos += mtd_info.erasesize) {
+            if (ioctl(fd, MEMGETBADBLOCK, &pos) > 0) {
+                fprintf(stderr, "mtd: found bad block at 0x%08lx\n", pos);
+                *usable_size -= mtd_info.erasesize;
+            }
+        }
+    }
+    
     close(fd);
     if (ret < 0) return -1;
 
@@ -248,6 +337,14 @@ mtd_partition_info(const MtdPartition *partition,
     if (erase_size != NULL) *erase_size = mtd_info.erasesize;
     if (write_size != NULL) *write_size = mtd_info.writesize;
     return 0;
+}
+
+int mtd_partition_index(const MtdPartition *partition)
+{
+    if (partition == NULL)
+        return -1;
+        
+    return partition->device_index;
 }
 
 MtdReadContext *mtd_read_partition(const MtdPartition *partition)
@@ -289,7 +386,7 @@ static int read_block(const MtdPartition *partition, int fd, char *data)
     int mgbb;
 
     while (pos + size <= (int) partition->size) {
-        if (lseek64(fd, pos, SEEK_SET) != pos || read(fd, data, size) != size) {
+        if (lseek64(fd, pos, SEEK_SET) != pos || mtdread(fd, data, size, partition->write_size) != size) {
             fprintf(stderr, "mtd: read error at 0x%08llx (%s)\n",
                     pos, strerror(errno));
         } else if (ioctl(fd, ECCGETSTATS, &after)) {
@@ -411,14 +508,14 @@ static int write_block(const MtdPartition *partition, int fd, const char *data)
                 continue;
             }
             if (lseek(fd, pos, SEEK_SET) != pos ||
-                write(fd, data, size) != size) {
+                mtdwrite(fd, data, size, partition->write_size) != size) {
                 fprintf(stderr, "mtd: write error at 0x%08lx (%s)\n",
                         pos, strerror(errno));
             }
 
             char verify[size];
             if (lseek(fd, pos, SEEK_SET) != pos ||
-                read(fd, verify, size) != size) {
+                mtdread(fd, verify, size, partition->write_size) != size) {
                 fprintf(stderr, "mtd: re-read error at 0x%08lx (%s)\n",
                         pos, strerror(errno));
                 continue;

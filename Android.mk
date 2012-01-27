@@ -1,3 +1,4 @@
+ifneq ($(TARGET_WIMM),)
 ifneq ($(TARGET_SIMULATOR),true)
 ifeq ($(TARGET_ARCH),arm)
 
@@ -53,4 +54,5 @@ commands_recovery_local_path :=
 
 endif   # TARGET_ARCH == arm
 endif	# !TARGET_SIMULATOR
+endif   #
 
