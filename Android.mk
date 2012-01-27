@@ -1,3 +1,5 @@
+ifneq ($(TARGET_WIMM),)
+
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
@@ -72,3 +74,5 @@ include $(commands_recovery_local_path)/edify/Android.mk
 include $(commands_recovery_local_path)/updater/Android.mk
 include $(commands_recovery_local_path)/applypatch/Android.mk
 commands_recovery_local_path :=
+
+endif   # TARGET_WIMM
