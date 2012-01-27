@@ -1,3 +1,4 @@
+ifneq ($(TARGET_WIMM),)
 ifneq ($(TARGET_SIMULATOR),true)
 ifeq ($(TARGET_ARCH),arm)
 
@@ -70,5 +71,6 @@ include $(commands_recovery_local_path)/applypatch/Android.mk
 commands_recovery_local_path :=
 
 endif   # TARGET_ARCH == arm
-endif    # !TARGET_SIMULATOR
+endif	# !TARGET_SIMULATOR
+endif   #
 
