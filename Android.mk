@@ -1,4 +1,4 @@
-ifneq ($(TARGET_WIMM),)
+ifeq ($(TARGET_WIMM),)
 ifneq ($(TARGET_SIMULATOR),true)
 ifeq ($(TARGET_ARCH),arm)
 
